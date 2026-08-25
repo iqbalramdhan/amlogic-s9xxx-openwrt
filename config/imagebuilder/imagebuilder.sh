@@ -136,7 +136,21 @@ custom_packages() {
 
     # Download other luci-app-xxx
     # ......
-
+    # Download Nikki (Mihomo Proxy) untuk OpenWrt 25.12
+    echo -e "${INFO} Mengunduh Nikki..."
+    nikki_api="https://api.github.com/repos/nikkinikki-org/OpenWrt-nikki/releases/latest"
+    
+    # Ekstrak link download spesifik untuk 25.12
+    nikki_url=$(curl -s ${nikki_api} | grep "browser_download_url" | grep -oE "https.*/nikki_aarch64_generic-openwrt-25\.12\.tar\.gz")
+    
+    if [[ -n "${nikki_url}" ]]; then
+        curl -fsSOJL "${nikki_url}"
+        echo -e "${INFO} Mengekstrak arsip paket Nikki..."
+        tar -xzf nikki_aarch64_generic-openwrt-25.12.tar.gz
+        rm -f nikki_aarch64_generic-openwrt-25.12.tar.gz
+    else
+        echo -e "${ERROR} Gagal menemukan link download arsip Nikki."
+    fi
     # Remove the packages that are not needed based on the Image Builder type (APK or OPKG)
     if grep -q "CONFIG_USE_APK=y" ../.config; then
         echo -e "${INFO} APK-based ImageBuilder detected. Removing .ipk files..."
