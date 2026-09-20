@@ -4,6 +4,7 @@
 # Description: Build OpenWrt with Image Builder
 #
 # Download from: https://downloads.openwrt.org/releases
+#                https://downloads.openwrt.org/snapshots
 #                https://downloads.immortalwrt.org/releases
 #
 # Documentation: https://openwrt.org/docs/guide-user/additional-software/imagebuilder

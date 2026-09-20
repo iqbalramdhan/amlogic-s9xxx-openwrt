@@ -15,6 +15,7 @@
 # Copyright (C) 2023~ https://downloads.immortalwrt.org/releases
 #
 # Download from: https://downloads.openwrt.org/releases
+#                https://downloads.openwrt.org/snapshots
 #                https://downloads.immortalwrt.org/releases
 #
 # Documentation: https://openwrt.org/docs/guide-user/additional-software/imagebuilder
@@ -73,7 +74,12 @@ download_imagebuilder() {
     else
         download_url="downloads.openwrt.org"
     fi
-    download_file="https://${download_url}/releases/${op_branch}/targets/armsr/armv8/${op_sourse}-imagebuilder-${op_branch}-armsr-armv8.Linux-x86_64.tar.zst"
+    # Use snapshots URL for snapshot builds, releases URL for stable releases
+    if [[ "${op_branch}" == "snapshots" ]]; then
+        download_file="https://${download_url}/snapshots/targets/armsr/armv8/${op_sourse}-imagebuilder-snapshots-armsr-armv8.Linux-x86_64.tar.zst"
+    else
+        download_file="https://${download_url}/releases/${op_branch}/targets/armsr/armv8/${op_sourse}-imagebuilder-${op_branch}-armsr-armv8.Linux-x86_64.tar.zst"
+    fi
     curl -fsSOL ${download_file}
     [[ "${?}" -eq "0" ]] || error_msg "Failed to download: [ ${download_file} ]"
 
@@ -304,7 +310,7 @@ custom_settings() {
 echo -e "${STEPS} Welcome to the OpenWrt Image Builder."
 [[ -x "${0}" ]] || error_msg "Please grant execution permission: [ chmod +x ${0} ]"
 [[ -z "${1}" ]] && error_msg "Please specify the OpenWrt source and branch, e.g. [ ${0} openwrt:24.10.4 ]"
-[[ "${1}" =~ ^[a-z]{3,}:[0-9]+ ]] || error_msg "Invalid parameter format. Expected <source:branch>, e.g. openwrt:24.10.4"
+[[ "${1}" =~ ^[a-z]{3,}:([0-9]+\.[0-9]+\.[0-9]+|[0-9]+\.[0-9]+|[0-9]+|snapshots) ]] || error_msg "Invalid parameter format. Expected <source:branch>, e.g. openwrt:24.10.4 or openwrt:snapshots"
 op_sourse="${1%:*}"
 op_branch="${1#*:}"
 echo -e "${INFO} Working directory: [ ${PWD} ]"

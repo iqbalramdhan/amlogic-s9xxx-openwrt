@@ -3,6 +3,7 @@
 # Description:   Build OpenWrt using ImageBuilder
 # Instructions:  https://openwrt.org/docs/guide-user/additional-software/imagebuilder
 # Download from: https://downloads.openwrt.org/releases
+#                https://downloads.openwrt.org/snapshots
 #                https://downloads.immortalwrt.org/releases
 #=====================================================================================
 
@@ -20,8 +21,10 @@ on:
         options:
           - openwrt:25.12.5
           - openwrt:24.10.8
+          - openwrt:snapshots
           - immortalwrt:25.12.1
           - immortalwrt:24.10.6
+          - immortalwrt:snapshots
       openwrt_board:
         description: "Select device board"
         required: false
