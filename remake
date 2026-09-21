@@ -1125,6 +1125,7 @@ refactor_rootfs() {
     echo "mt76x2e" >etc/modules.d/mt76x2e
     echo "mt7921e" >etc/modules.d/mt7921e
     echo "mt7915e" >etc/modules.d/mt7915e
+    echo "ssv6051" >etc/modules.d/ssv6051
 
     # GPU Driver
     echo "panfrost" >etc/modules.d/panfrost
@@ -1170,7 +1171,7 @@ EOF
     }
     [[ -f "etc/inittab" ]] && {
         sed -i 's/ttyAMA0/ttyAML0/' etc/inittab
-        sed -i 's/ttyS0/tty0/' etc/inittab
+        [[ "${board}" != "xingyicloud" ]] && sed -i 's/ttyS0/tty0/' etc/inittab
     }
 
     # Automatic expansion of the third and fourth partitions on first boot

@@ -1,0 +1,19 @@
+#!/bin/sh
+#
+# Copyright (C) 2015 OpenWrt.org
+#
+
+. /lib/functions/uci-defaults.sh
+
+board_config_update
+
+# Power LEDs on the XY3528 front panel (LED names come from the DTS
+# node names, since the nodes have no label property):
+#   led-green (GPIO4_B3) - solid on while running
+#   led-red   (GPIO4_C1) - used as a network activity indicator
+ucidef_set_led_default "power" "POWER" "led-green" "1"
+ucidef_set_led_netdev "net" "NET" "led-red" "eth0"
+
+board_config_flush
+
+exit 0
