@@ -76,7 +76,7 @@ download_imagebuilder() {
     fi
     # Use snapshots URL for snapshot builds, releases URL for stable releases
     if [[ "${op_branch}" == "snapshots" ]]; then
-        download_file="https://${download_url}/snapshots/targets/armsr/armv8/${op_sourse}-openwrt-imagebuilder-armsr-armv8.Linux-x86_64.tar.zst"
+        download_file="https://${download_url}/snapshots/targets/armsr/armv8/${op_sourse}-imagebuilder-armsr-armv8.Linux-x86_64.tar.zst"
     else
         download_file="https://${download_url}/releases/${op_branch}/targets/armsr/armv8/${op_sourse}-imagebuilder-${op_branch}-armsr-armv8.Linux-x86_64.tar.zst"
     fi
