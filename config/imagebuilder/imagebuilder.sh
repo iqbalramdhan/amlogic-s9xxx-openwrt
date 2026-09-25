@@ -142,20 +142,32 @@ custom_packages() {
 
     # Download other luci-app-xxx
     # ......
-    # Download Nikki (Mihomo Proxy) untuk OpenWrt 25.12
+    # Download Nikki (Mihomo Proxy) untuk OpenWrt
     echo -e "${INFO} Mengunduh Nikki..."
     nikki_api="https://api.github.com/repos/nikkinikki-org/OpenWrt-nikki/releases/latest"
-    
-    # Ekstrak link download spesifik untuk 25.12
-    nikki_url=$(curl -s ${nikki_api} | grep "browser_download_url" | grep -oE "https.*/nikki_aarch64_generic-openwrt-25\.12\.tar\.gz")
-    
-    if [[ -n "${nikki_url}" ]]; then
-        curl -fsSOJL "${nikki_url}"
-        echo -e "${INFO} Mengekstrak arsip paket Nikki..."
-        tar -xzf nikki_aarch64_generic-openwrt-25.12.tar.gz
-        rm -f nikki_aarch64_generic-openwrt-25.12.tar.gz
+
+    # Petakan op_branch ke identitas branch pada nama asset Nikki
+    case "${op_branch}" in
+        24.10*)    nikki_branch="openwrt-24.10" ;;
+        25.12*)    nikki_branch="openwrt-25.12" ;;
+        snapshots) nikki_branch="SNAPSHOT" ;;
+        *)         nikki_branch="" ;;
+    esac
+
+    if [[ -n "${nikki_branch}" ]]; then
+        # Ekstrak link download spesifik untuk branch yang sedang di-build
+        nikki_url=$(curl -s ${nikki_api} | grep "browser_download_url" | grep -oE "https.*/nikki_aarch64_generic-${nikki_branch}\.tar\.gz")
+
+        if [[ -n "${nikki_url}" ]]; then
+            curl -fsSOJL "${nikki_url}"
+            echo -e "${INFO} Mengekstrak arsip paket Nikki..."
+            tar -xzf "nikki_aarch64_generic-${nikki_branch}.tar.gz"
+            rm -f "nikki_aarch64_generic-${nikki_branch}.tar.gz"
+        else
+            echo -e "${ERROR} Gagal menemukan link download arsip Nikki untuk branch [ ${nikki_branch} ]."
+        fi
     else
-        echo -e "${ERROR} Gagal menemukan link download arsip Nikki."
+        echo -e "${WARNING} Branch [ ${op_branch} ] tidak dipetakan ke asset Nikki manapun, dilewati."
     fi
     # Remove the packages that are not needed based on the Image Builder type (APK or OPKG)
     if grep -q "CONFIG_USE_APK=y" ../.config; then
