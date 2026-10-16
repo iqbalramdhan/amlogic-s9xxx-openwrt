@@ -28,11 +28,13 @@
 #======================================== Functions list ========================================
 #
 # error_msg               : Output error message and abort
+# github_api              : Query the GitHub API (uses GITHUB_TOKEN when available)
 # download_imagebuilder   : Download and extract the OpenWrt Image Builder
 # adjust_settings         : Adjust Image Builder .config settings
 # custom_packages         : Download and add custom packages
 # custom_config           : Load custom package configuration
 # custom_files            : Add custom overlay files
+# check_custom_package    : Verify that a required custom package file exists
 # rebuild_firmware        : Build firmware using Image Builder
 # custom_settings         : Apply post-build customizations
 #
@@ -48,6 +50,11 @@ output_path="${make_path}/output"
 tmp_path="${imagebuilder_path}/tmp"
 unpack_path="${tmp_path}/unpacked_rootfs"
 
+# Fallback download URLs, used only when the GitHub API cannot be reached (e.g. rate limit).
+# Update these when a newer release is needed.
+amlogic_fallback_url="https://github.com/ophub/luci-app-amlogic/releases/download/26.10.1501-js/luci-app-amlogic-26.10.1501-r2.apk"
+nikki_fallback_url="https://github.com/nikkinikki-org/OpenWrt-nikki/releases/download/v1.26.2/nikki_aarch64_generic-SNAPSHOT.tar.gz"
+
 # Set default parameters
 STEPS="[\033[95m STEPS \033[0m]"
 INFO="[\033[94m INFO \033[0m]"
@@ -61,6 +68,16 @@ ERROR="[\033[91m ERROR \033[0m]"
 error_msg() {
     echo -e "${ERROR} ${1}"
     exit 1
+}
+
+# Query the GitHub API. Use GITHUB_TOKEN when it is set to avoid anonymous rate limits.
+github_api() {
+    local api_url="${1}"
+    if [[ -n "${GITHUB_TOKEN}" ]]; then
+        curl -fsSL -H "Authorization: Bearer ${GITHUB_TOKEN}" "${api_url}" 2>/dev/null
+    else
+        curl -fsSL "${api_url}" 2>/dev/null
+    fi
 }
 
 # Downloading OpenWrt ImageBuilder
@@ -86,6 +103,9 @@ download_imagebuilder() {
     # Unzip and change the directory name
     tar -I zstd -xvf *-imagebuilder-*.tar.zst -C . && sync && rm -f *-imagebuilder-*.tar.zst
     mv -f *-imagebuilder-* ${openwrt_dir}
+
+    # Create the tmp directory early so that make does not warn about a missing TMPDIR
+    mkdir -p "${tmp_path}"
 
     sync && sleep 3
     echo -e "${INFO} [ ${make_path} ] directory contents: \n$(ls -lh . 2>/dev/null)"
@@ -127,26 +147,39 @@ custom_packages() {
     [[ -d "packages" ]] || mkdir packages
     cd packages
 
-    # Download luci-app-amlogic
+    # Detect the package format of the Image Builder: APK (new) or OPKG (ipk)
+    if grep -q "CONFIG_USE_APK=y" ../.config; then
+        pkg_format="apk"
+    else
+        pkg_format="ipk"
+    fi
+
+    # Download luci-app-amlogic: latest "-js" release, matching the package format
     amlogic_api="https://api.github.com/repos/ophub/luci-app-amlogic/releases"
-    # Get the latest release version
-    amlogic_plugin_latest_version="$(curl -s ${amlogic_api} | grep -oP '(?<="tag_name": ")[^"]+' | grep "\-js$" | sort -Vur | head -n1)"
-    # Get the download URLs for the latest release assets (ipk or apk files)
-    amlogic_plugin_list=($(curl -s ${amlogic_api} | grep "browser_download_url" | grep -oE "https.*/${amlogic_plugin_latest_version}/.*\.(ipk|apk)"))
+    amlogic_json="$(github_api "${amlogic_api}")"
+    amlogic_latest_tag="$(echo "${amlogic_json}" | grep -oP '(?<="tag_name": ")[^"]+' | grep -- "-js$" | sort -Vr | head -n1)"
+    amlogic_url=""
+    if [[ -n "${amlogic_latest_tag}" ]]; then
+        amlogic_url="$(echo "${amlogic_json}" | grep -oE "https://[^\"]*/${amlogic_latest_tag}/[^\"]*\.${pkg_format}" | head -n1)"
+    fi
+    # Use the fallback URL if the API did not return a usable link (APK builds only)
+    if [[ -z "${amlogic_url}" && "${pkg_format}" == "apk" ]]; then
+        echo -e "${WARNING} GitHub API did not return a luci-app-amlogic link, using the fallback URL."
+        amlogic_url="${amlogic_fallback_url}"
+    fi
+    if [[ -n "${amlogic_url}" ]]; then
+        curl -fsSOJL "${amlogic_url}" \
+            && echo -e "${INFO} The [ $(basename "${amlogic_url}") ] is downloaded successfully." \
+            || echo -e "${WARNING} Failed to download [ ${amlogic_url} ]."
+    else
+        echo -e "${WARNING} No luci-app-amlogic [ .${pkg_format} ] link found for this build."
+    fi
 
-    # Download the latest release assets
-    for plugin_url in "${amlogic_plugin_list[@]}"; do
-        curl -fsSOJL "${plugin_url}"
-        [[ "${?}" -eq "0" ]] && echo -e "${INFO} The [ ${plugin_url} ] is downloaded successfully."
-    done
-
-    # Download other luci-app-xxx
-    # ......
-    # Download Nikki (Mihomo Proxy) untuk OpenWrt
-    echo -e "${INFO} Mengunduh Nikki..."
+    # Download Nikki (Mihomo Proxy) for OpenWrt
+    echo -e "${INFO} Downloading Nikki..."
     nikki_api="https://api.github.com/repos/nikkinikki-org/OpenWrt-nikki/releases/latest"
 
-    # Petakan op_branch ke identitas branch pada nama asset Nikki
+    # Map op_branch to the branch identifier used in the Nikki asset name
     case "${op_branch}" in
         24.10*)    nikki_branch="openwrt-24.10" ;;
         25.12*)    nikki_branch="openwrt-25.12" ;;
@@ -155,24 +188,34 @@ custom_packages() {
     esac
 
     if [[ -n "${nikki_branch}" ]]; then
-        # Ekstrak link download spesifik untuk branch yang sedang di-build
-        nikki_url=$(curl -s ${nikki_api} | grep "browser_download_url" | grep -oE "https.*/nikki_aarch64_generic-${nikki_branch}\.tar\.gz")
+        # Find the download link for this branch in the latest release
+        nikki_url="$(github_api "${nikki_api}" | grep -oE "https://[^\"]*/nikki_aarch64_generic-${nikki_branch}\.tar\.gz" | head -n1)"
+        # The latest release may not contain the SNAPSHOT asset, so use the fallback URL
+        if [[ -z "${nikki_url}" && "${nikki_branch}" == "SNAPSHOT" ]]; then
+            echo -e "${WARNING} GitHub API did not return a Nikki link, using the fallback URL."
+            nikki_url="${nikki_fallback_url}"
+        fi
 
         if [[ -n "${nikki_url}" ]]; then
             curl -fsSOJL "${nikki_url}"
-            echo -e "${INFO} Mengekstrak arsip paket Nikki..."
-            tar -xzf "nikki_aarch64_generic-${nikki_branch}.tar.gz"
-            rm -f "nikki_aarch64_generic-${nikki_branch}.tar.gz"
+            nikki_archive="nikki_aarch64_generic-${nikki_branch}.tar.gz"
+            if [[ -f "${nikki_archive}" ]]; then
+                echo -e "${INFO} Extracting the Nikki package archive..."
+                tar -xzf "${nikki_archive}"
+                rm -f "${nikki_archive}"
+            else
+                echo -e "${WARNING} Failed to download [ ${nikki_url} ]."
+            fi
         else
-            echo -e "${ERROR} Gagal menemukan link download arsip Nikki untuk branch [ ${nikki_branch} ]."
+            echo -e "${WARNING} No Nikki download link found for branch [ ${nikki_branch} ]."
         fi
     else
-        echo -e "${WARNING} Branch [ ${op_branch} ] tidak dipetakan ke asset Nikki manapun, dilewati."
+        echo -e "${WARNING} Branch [ ${op_branch} ] has no Nikki asset mapping, skipped."
     fi
 
-    # Download paket modem L860-GL (driver AT-command + luci-proto-atc)
-    # Sumber: https://github.com/iqbalramdhan/ATCommands (fork dari mrhaav/openwrt)
-    echo -e "${INFO} Mengunduh paket modem L860-GL (ATC)..."
+    # Download the L860-GL modem package (AT command driver + luci-proto-atc)
+    # Source: https://github.com/iqbalramdhan/ATCommands (fork of mrhaav/openwrt)
+    echo -e "${INFO} Downloading L860-GL modem (ATC) packages..."
     atc_repo_raw="https://raw.githubusercontent.com/iqbalramdhan/ATCommands/master/atc"
     atc_files=(
         "fib-l8x0_gl/atc-fib-l8x0_gl-2025.09.06-r3.apk"
@@ -187,15 +230,15 @@ custom_packages() {
         fi
     done
 
-    # Remove the packages that are not needed based on the Image Builder type (APK or OPKG)
-    if grep -q "CONFIG_USE_APK=y" ../.config; then
+    # Remove the packages that do not match the Image Builder format
+    if [[ "${pkg_format}" == "apk" ]]; then
         echo -e "${INFO} APK-based ImageBuilder detected. Removing .ipk files..."
         rm -f *.ipk
 
-        # Fix the filename format of APK files to be compatible with Image Builder requirements.
-        # Image Builder requires that the commit hash in the filename is preceded by a tilde (~) instead of a dot (.).
+        # Image Builder requires the commit hash in the filename to be preceded by a tilde (~)
+        # instead of a dot (.). Replace the dot before the 7-character commit hash.
         for file in *.apk; do
-            # Use sed to replace the last dot before the 7-character commit hash with a tilde
+            [[ -f "${file}" ]] || continue
             new_file=$(echo "${file}" | sed -E 's/\.([a-f0-9]{7}\.apk)/~\1/')
             if [[ "${file}" != "${new_file}" ]]; then
                 mv -f "${file}" "${new_file}" || true
@@ -244,10 +287,25 @@ custom_files() {
     fi
 }
 
+# Check that a custom package file exists in the [ packages ] directory.
+# Versions start with a digit, so "nikki-<digit>" does not match "luci-app-nikki-<digit>".
+check_custom_package() {
+    local pkg_name="${1}"
+    ls packages/${pkg_name}-[0-9]*.apk packages/${pkg_name}-[0-9]*.ipk >/dev/null 2>&1 \
+        || error_msg "Custom package [ ${pkg_name} ] was not found in the [ packages ] directory."
+}
+
 # Rebuild OpenWrt firmware
 rebuild_firmware() {
     cd ${imagebuilder_path}
     echo -e "${STEPS} Building OpenWrt firmware with Image Builder..."
+
+    # Make sure the required custom packages were downloaded before building
+    check_custom_package "luci-app-amlogic"
+    if [[ " ${config_list} " == *" nikki "* ]]; then
+        check_custom_package "nikki"
+        check_custom_package "luci-app-nikki"
+    fi
 
     # Selecting default packages, lib, theme, app and i18n, etc.
     # NOTE: "-dnsmasq" excludes the default dnsmasq package so it can be replaced by dnsmasq-full below.
@@ -270,8 +328,9 @@ rebuild_firmware() {
         ${config_list} \
         "
 
-    # Rebuild firmware
-    make image PROFILE="" PACKAGES="${my_packages}" FILES="files"
+    # Rebuild firmware, and stop immediately if make fails
+    make image PROFILE="" PACKAGES="${my_packages}" FILES="files" \
+        || error_msg "Image Builder failed. Check the log above for the cause."
 
     sync && sleep 3
     echo -e "${INFO} [ ${openwrt_dir}/bin/targets/*/*/ ] directory contents: \n$(ls -lh bin/targets/*/*/ 2>/dev/null)"
@@ -284,8 +343,8 @@ custom_settings() {
     echo -e "${STEPS} Applying post-build customizations..."
 
     # Clean up temporary and output directories
-    [[ -d "${tmp_path}" ]] && rm -rf "${tmp_path:?}"/* || mkdir -p "${tmp_path}"
-    [[ -d "${output_path}" ]] && rm -rf "${output_path:?}"/* || mkdir -p "${output_path}"
+    mkdir -p "${tmp_path}" "${output_path}"
+    rm -rf "${tmp_path:?}"/* "${output_path:?}"/*
 
     # Find the original *rootfs.tar.gz file
     original_archive="$(ls -1 bin/targets/*/*/*rootfs.tar.gz 2>/dev/null | head -n 1)"
