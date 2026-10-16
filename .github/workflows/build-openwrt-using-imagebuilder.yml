@@ -20,8 +20,10 @@ on:
         options:
           - openwrt:25.12.5
           - openwrt:24.10.8
+          - openwrt:snapshots
           - immortalwrt:25.12.2
           - immortalwrt:24.10.6
+          - immortalwrt:snapshots
       openwrt_board:
         description: "Select device board"
         required: false

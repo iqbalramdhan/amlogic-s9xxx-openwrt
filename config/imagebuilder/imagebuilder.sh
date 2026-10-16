@@ -15,6 +15,7 @@
 # Copyright (C) 2023~ https://downloads.immortalwrt.org/releases
 #
 # Download from: https://downloads.openwrt.org/releases
+#                https://downloads.openwrt.org/snapshots
 #                https://downloads.immortalwrt.org/releases
 #
 # Documentation: https://openwrt.org/docs/guide-user/additional-software/imagebuilder
@@ -73,7 +74,12 @@ download_imagebuilder() {
     else
         download_url="downloads.openwrt.org"
     fi
-    download_file="https://${download_url}/releases/${op_branch}/targets/armsr/armv8/${op_sourse}-imagebuilder-${op_branch}-armsr-armv8.Linux-x86_64.tar.zst"
+    # Use snapshots URL for snapshot builds, releases URL for stable releases
+    if [[ "${op_branch}" == "snapshots" ]]; then
+        download_file="https://${download_url}/snapshots/targets/armsr/armv8/${op_sourse}-imagebuilder-armsr-armv8.Linux-x86_64.tar.zst"
+    else
+        download_file="https://${download_url}/releases/${op_branch}/targets/armsr/armv8/${op_sourse}-imagebuilder-${op_branch}-armsr-armv8.Linux-x86_64.tar.zst"
+    fi
     curl -fsSOL ${download_file}
     [[ "${?}" -eq "0" ]] || error_msg "Failed to download: [ ${download_file} ]"
 
@@ -136,6 +142,50 @@ custom_packages() {
 
     # Download other luci-app-xxx
     # ......
+    # Download Nikki (Mihomo Proxy) untuk OpenWrt
+    echo -e "${INFO} Mengunduh Nikki..."
+    nikki_api="https://api.github.com/repos/nikkinikki-org/OpenWrt-nikki/releases/latest"
+
+    # Petakan op_branch ke identitas branch pada nama asset Nikki
+    case "${op_branch}" in
+        24.10*)    nikki_branch="openwrt-24.10" ;;
+        25.12*)    nikki_branch="openwrt-25.12" ;;
+        snapshots) nikki_branch="SNAPSHOT" ;;
+        *)         nikki_branch="" ;;
+    esac
+
+    if [[ -n "${nikki_branch}" ]]; then
+        # Ekstrak link download spesifik untuk branch yang sedang di-build
+        nikki_url=$(curl -s ${nikki_api} | grep "browser_download_url" | grep -oE "https.*/nikki_aarch64_generic-${nikki_branch}\.tar\.gz")
+
+        if [[ -n "${nikki_url}" ]]; then
+            curl -fsSOJL "${nikki_url}"
+            echo -e "${INFO} Mengekstrak arsip paket Nikki..."
+            tar -xzf "nikki_aarch64_generic-${nikki_branch}.tar.gz"
+            rm -f "nikki_aarch64_generic-${nikki_branch}.tar.gz"
+        else
+            echo -e "${ERROR} Gagal menemukan link download arsip Nikki untuk branch [ ${nikki_branch} ]."
+        fi
+    else
+        echo -e "${WARNING} Branch [ ${op_branch} ] tidak dipetakan ke asset Nikki manapun, dilewati."
+    fi
+
+    # Download paket modem L860-GL (driver AT-command + luci-proto-atc)
+    # Sumber: https://github.com/iqbalramdhan/ATCommands (fork dari mrhaav/openwrt)
+    echo -e "${INFO} Mengunduh paket modem L860-GL (ATC)..."
+    atc_repo_raw="https://raw.githubusercontent.com/iqbalramdhan/ATCommands/master/atc"
+    atc_files=(
+        "fib-l8x0_gl/atc-fib-l8x0_gl-2025.09.06-r3.apk"
+        "luci-proto-atc-2025.01.10-r2.apk"
+    )
+    for atc_file in "${atc_files[@]}"; do
+        curl -fsSOJL "${atc_repo_raw}/${atc_file}"
+        if [[ "${?}" -eq "0" ]]; then
+            echo -e "${INFO} The [ $(basename "${atc_file}") ] is downloaded successfully."
+        else
+            echo -e "${WARNING} Failed to download [ ${atc_file} ], skipped."
+        fi
+    done
 
     # Remove the packages that are not needed based on the Image Builder type (APK or OPKG)
     if grep -q "CONFIG_USE_APK=y" ../.config; then
@@ -200,24 +250,22 @@ rebuild_firmware() {
     echo -e "${STEPS} Building OpenWrt firmware with Image Builder..."
 
     # Selecting default packages, lib, theme, app and i18n, etc.
+    # NOTE: "-dnsmasq" excludes the default dnsmasq package so it can be replaced by dnsmasq-full below.
     my_packages="\
-        acpid attr base-files bash bc blkid block-mount blockd bsdtar btrfs-progs busybox bzip2 \
-        cgi-io chattr comgt comgt-ncm containerd coremark coreutils coreutils-base64 coreutils-nohup \
-        coreutils-truncate curl docker docker-compose dockerd dosfstools dumpe2fs e2freefrag e2fsprogs \
-        exfat-mkfs f2fs-tools f2fsck fdisk gawk getopt git gzip hostapd-common iconv iw iwinfo jq \
-        jshn kmod-brcmfmac kmod-brcmutil kmod-cfg80211 kmod-mac80211 libjson-script liblucihttp \
-        liblucihttp-lua losetup lsattr lsblk lscpu mkf2fs mount-utils openssl-util parted \
-        perl-http-date perlbase-file perlbase-getopt perlbase-time perlbase-unicode perlbase-utf8 \
-        pigz ppp ppp-mod-pppoe pv rename resize2fs runc tar tini ttyd tune2fs \
-        uclient-fetch uhttpd uhttpd-mod-ubus unzip uqmi usb-modeswitch uuidgen wget-ssl whereis \
-        which wpad-basic wwan xfs-fsck xfs-mkfs xz xz-utils ziptool zoneinfo-asia zoneinfo-core zstd \
-        \
-        luci luci-base luci-compat luci-i18n-base-zh-cn luci-lib-base \
-        luci-lib-ip luci-lib-ipkg luci-lib-jsonc luci-lib-nixio luci-mod-admin-full luci-mod-network \
-        luci-mod-status luci-mod-system luci-proto-3g luci-proto-ipip luci-proto-ipv6 \
-        luci-proto-ncm luci-proto-openconnect luci-proto-ppp luci-proto-qmi luci-proto-relay \
-        \
-        luci-app-amlogic luci-i18n-amlogic-zh-cn \
+        -dnsmasq cgi-io libiwinfo libiwinfo-data libiwinfo-lua liblua liblucihttp liblucihttp-lua \
+        libubus-lua lua luci luci-app-firewall luci-app-opkg luci-base luci-lib-base \
+        luci-lib-ip luci-lib-jsonc luci-lib-nixio luci-mod-admin-full luci-mod-network \
+        luci-mod-status luci-mod-system luci-proto-ppp luci-ssl \
+        px5g-mbedtls rpcd rpcd-mod-file rpcd-mod-iwinfo rpcd-mod-luci \
+        rpcd-mod-rrdns uhttpd uhttpd-mod-ubus luci-compat \
+        usb-modeswitch kmod-usb-net-rtl8152 \
+        luci-app-amlogic openssh-sftp-server usbutils kmod-usb2 kmod-brcmfmac \
+        kmod-brcmutil perlbase-essential perlbase-utf8 \
+        perlbase-file perlbase-time perlbase-xsloader coreutils-stat \
+        kmod-usb-acm kmod-usb-net-cdc-ncm comgt \
+        r8152-firmware btrfs-progs comgt-ncm nano-full \
+        bash dnsmasq-full curl ca-bundle ip-full ruby ruby-yaml kmod-tun \
+        kmod-inet-diag unzip kmod-nft-tproxy zoneinfo-asia \
         \
         ${config_list} \
         "
@@ -296,7 +344,7 @@ custom_settings() {
 echo -e "${STEPS} Welcome to the OpenWrt Image Builder."
 [[ -x "${0}" ]] || error_msg "Please grant execution permission: [ chmod +x ${0} ]"
 [[ -z "${1}" ]] && error_msg "Please specify the OpenWrt source and branch, e.g. [ ${0} openwrt:24.10.4 ]"
-[[ "${1}" =~ ^[a-z]{3,}:[0-9]+ ]] || error_msg "Invalid parameter format. Expected <source:branch>, e.g. openwrt:24.10.4"
+[[ "${1}" =~ ^[a-z]{3,}:([0-9]+\.[0-9]+\.[0-9]+|[0-9]+\.[0-9]+|[0-9]+|snapshots) ]] || error_msg "Invalid parameter format. Expected <source:branch>, e.g. openwrt:24.10.4 or openwrt:snapshots"
 op_sourse="${1%:*}"
 op_branch="${1#*:}"
 echo -e "${INFO} Working directory: [ ${PWD} ]"
