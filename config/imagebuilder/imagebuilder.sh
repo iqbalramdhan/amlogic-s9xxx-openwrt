@@ -291,8 +291,10 @@ custom_files() {
 # Versions start with a digit, so "nikki-<digit>" does not match "luci-app-nikki-<digit>".
 check_custom_package() {
     local pkg_name="${1}"
-    ls packages/${pkg_name}-[0-9]*.apk packages/${pkg_name}-[0-9]*.ipk >/dev/null 2>&1 \
-        || error_msg "Custom package [ ${pkg_name} ] was not found in the [ packages ] directory."
+    # compgen -G returns success only if the glob matches at least one file
+    compgen -G "packages/${pkg_name}-[0-9]*.apk" >/dev/null 2>&1 && return 0
+    compgen -G "packages/${pkg_name}-[0-9]*.ipk" >/dev/null 2>&1 && return 0
+    error_msg "Custom package [ ${pkg_name} ] was not found in the [ packages ] directory."
 }
 
 # Rebuild OpenWrt firmware
