@@ -119,6 +119,7 @@ on:
           - lz-k3568
           - md1000
           - mrkaio-m68s
+          - mytv-net1
           - nanopc-t4
           - nanopc-t6
           - nanopi-m5
@@ -267,6 +268,7 @@ on:
           - x88pro13
           - x88pro20
           - x98h
+          - x98h-100mb
           - xiaobao
           - xingyicloud
           - youyeetoo-r1-v3
