@@ -54,6 +54,7 @@ unpack_path="${tmp_path}/unpacked_rootfs"
 # Update these when a newer release is needed.
 amlogic_fallback_url="https://github.com/ophub/luci-app-amlogic/releases/download/26.10.1501-js/luci-app-amlogic-26.10.1501-r2.apk"
 nikki_fallback_url="https://github.com/nikkinikki-org/OpenWrt-nikki/releases/download/v1.26.2/nikki_aarch64_generic-SNAPSHOT.tar.gz"
+threeginfo_fallback_url="https://github.com/4IceG/luci-app-3ginfo-lite/releases/download/1.0.77-r20260215/luci-app-3ginfo-lite-1.0.77-r20260215.apk"
 
 # Set default parameters
 STEPS="[\033[95m STEPS \033[0m]"
@@ -230,6 +231,32 @@ custom_packages() {
         fi
     done
 
+    # Download luci-app-3ginfo-lite: latest release, matching the package format
+    # Source: https://github.com/4IceG/luci-app-3ginfo-lite
+    echo -e "${INFO} Downloading luci-app-3ginfo-lite..."
+    threeginfo_api="https://api.github.com/repos/4IceG/luci-app-3ginfo-lite/releases/latest"
+    threeginfo_json="$(github_api "${threeginfo_api}")"
+    # apk assets look like luci-app-3ginfo-lite-<version>.apk (hyphen before the version)
+    # ipk assets look like luci-app-3ginfo-lite_<version>_all.ipk (underscore before the version)
+    # Both patterns are anchored so the luci-i18n-3ginfo-lite-* translation packages are skipped.
+    if [[ "${pkg_format}" == "apk" ]]; then
+        threeginfo_url="$(echo "${threeginfo_json}" | grep -oE "https://[^\"]*/luci-app-3ginfo-lite-[0-9][^\"]*\.apk" | head -n1)"
+    else
+        threeginfo_url="$(echo "${threeginfo_json}" | grep -oE "https://[^\"]*/luci-app-3ginfo-lite_[^\"]*\.ipk" | head -n1)"
+    fi
+    # Use the fallback URL if the API did not return a usable link (APK builds only)
+    if [[ -z "${threeginfo_url}" && "${pkg_format}" == "apk" ]]; then
+        echo -e "${WARNING} GitHub API did not return a luci-app-3ginfo-lite link, using the fallback URL."
+        threeginfo_url="${threeginfo_fallback_url}"
+    fi
+    if [[ -n "${threeginfo_url}" ]]; then
+        curl -fsSOJL "${threeginfo_url}" \
+            && echo -e "${INFO} The [ $(basename "${threeginfo_url}") ] is downloaded successfully." \
+            || echo -e "${WARNING} Failed to download [ ${threeginfo_url} ]."
+    else
+        echo -e "${WARNING} No luci-app-3ginfo-lite [ .${pkg_format} ] link found for this build."
+    fi
+
     # Remove the packages that do not match the Image Builder format
     if [[ "${pkg_format}" == "apk" ]]; then
         echo -e "${INFO} APK-based ImageBuilder detected. Removing .ipk files..."
@@ -294,6 +321,7 @@ check_custom_package() {
     # compgen -G returns success only if the glob matches at least one file
     compgen -G "packages/${pkg_name}-[0-9]*.apk" >/dev/null 2>&1 && return 0
     compgen -G "packages/${pkg_name}-[0-9]*.ipk" >/dev/null 2>&1 && return 0
+    compgen -G "packages/${pkg_name}_[0-9]*.ipk" >/dev/null 2>&1 && return 0
     error_msg "Custom package [ ${pkg_name} ] was not found in the [ packages ] directory."
 }
 
@@ -307,6 +335,9 @@ rebuild_firmware() {
     if [[ " ${config_list} " == *" nikki "* ]]; then
         check_custom_package "nikki"
         check_custom_package "luci-app-nikki"
+    fi
+    if [[ " ${config_list} " == *" luci-app-3ginfo-lite "* ]]; then
+        check_custom_package "luci-app-3ginfo-lite"
     fi
 
     # Selecting default packages, lib, theme, app and i18n, etc.
